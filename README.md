@@ -4,6 +4,8 @@ A robotics perception project using an RB-KAIROS mobile robot with a Franka arm 
 
 The project is under active development. Current work focuses on simulation-based sensing, LiDAR geometry extraction and camera data collection; reconstruction and scene understanding form the next development stages.
 
+![Example visualization](example.png)
+
 ## Current implementation
 
 | Component | Functionality |
