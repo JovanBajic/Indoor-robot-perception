@@ -29,6 +29,7 @@ setup(
         'console_scripts': [
             'lidar_outline = lidar_outline.lidar_outline_node:main',
             'wasd_teleop = lidar_outline.wasd_teleop:main',
+            'capture_camera = lidar_outline.capture_camera:main',
         ],
     },
 )

@@ -5,3 +5,34 @@ __pycache__/
 build/
 install/
 log/
+
+# Python tooling and local environments
+.venv/
+venv/
+env/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+
+# Local configuration and credentials (tracked files require separate review)
+.env
+.env.*
+!.env.example
+*.local.yaml
+*.local.yml
+.idea/
+.vscode/
+
+# Generated capture/training outputs; keep intentional source assets visible
+/room_captures/
+/captures/
+/datasets/
+/outputs/
+/checkpoints/
+/runs/
+/bags/
+*.bag
+*.db3
+*.mcap
