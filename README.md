@@ -1,5 +1,5 @@
-# Indoor robot perception with Isaac Sim and ROS 2
-
+# [IN PROGRESS] Indoor robot perception with Isaac Sim and ROS 2
+ 
 A robotics perception project using an RB-KAIROS mobile robot with a Franka arm to scan indoor environments in NVIDIA Isaac Sim. This repository provides ROS 2 tools for 2D LiDAR outlines, keyboard driving and timestamped camera capture. The intended next stages are 3D Gaussian Splatting reconstruction, SceneSplat semantic segmentation, object detection and detection of objects moving during simulation.
 
 The project is under active development. Current work focuses on simulation-based sensing, LiDAR geometry extraction and camera data collection; reconstruction and scene understanding form the next development stages.
