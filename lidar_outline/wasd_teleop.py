@@ -1,4 +1,7 @@
-"""Publish ROS 2 velocity commands while keys are held in a small window."""
+"""Publish forward and turning velocity commands while keys are held in a focused WASD
+
+window. Clear commands when the window loses focus or closes.
+"""
 
 import argparse
 import math

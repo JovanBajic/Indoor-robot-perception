@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Check Python docstring conventions with the ROS ament PEP 257 checker."""
+
 from ament_pep257.main import main
 import pytest
 

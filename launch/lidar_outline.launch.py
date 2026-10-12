@@ -1,3 +1,5 @@
+"""Launch LiDAR outline processing and RViz using the Isaac simulation clock."""
+
 from launch import LaunchDescription
 from launch_ros.actions import Node
 

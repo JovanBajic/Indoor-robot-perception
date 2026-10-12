@@ -1,0 +1,45 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: world
+  Displays:
+    - Class: rviz_default_plugins/Map
+      Name: World occupancy map
+      Enabled: true
+      Topic:
+        Value: /nav/map
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 0.8
+    - Class: rviz_default_plugins/TF
+      Name: Robot and sensor frames
+      Enabled: true
+      Show Names: true
+      Marker Scale: 0.3
+    - Class: rviz_default_plugins/LaserScan
+      Name: Front scan
+      Enabled: true
+      Topic:
+        Value: /nav/front_scan
+        Reliability Policy: Best Effort
+      Size (m): 0.03
+    - Class: rviz_default_plugins/LaserScan
+      Name: Rear scan
+      Enabled: true
+      Topic:
+        Value: /nav/rear_scan
+        Reliability Policy: Best Effort
+      Size (m): 0.03
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 45
+      Target Frame: world
+      X: 0
+      Y: 0
+Window Geometry:
+  Width: 1100
+  Height: 800

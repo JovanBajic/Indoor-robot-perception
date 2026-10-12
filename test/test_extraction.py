@@ -1,4 +1,7 @@
-"""Regression checks for extraction and marker lifecycle without a ROS graph."""
+"""Test LiDAR line extraction and RViz marker lifecycle using synthetic scans without a
+
+running simulation.
+"""
 
 from copy import deepcopy
 from types import SimpleNamespace

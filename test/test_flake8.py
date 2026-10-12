@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Check Python formatting and common code issues with the ROS ament flake8 checker."""
+
 from ament_flake8.main import main_with_errors
 import pytest
 

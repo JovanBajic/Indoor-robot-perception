@@ -1,0 +1,15 @@
+# Query a fixed reconstruction. A returned candidate is not a navigation goal.
+string query
+---
+bool found
+string status
+std_msgs/Header header
+geometry_msgs/Point centroid
+geometry_msgs/Point bbox_min
+geometry_msgs/Point bbox_max
+# Raw mean cosine similarity, not confidence probability.
+float64 mean_cosine
+uint32 point_count
+uint32 selected_count
+uint32 cluster_count
+string result_file

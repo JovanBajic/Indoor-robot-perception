@@ -1,5 +1,9 @@
-"""Capture timestamped RGB, calibration and measured optical camera poses."""
+"""Record RGB, optional paired depth, calibration and image-time optical camera poses.
 
+Each selected camera saves its own frames within one recording session.
+"""
+
+import argparse
 from collections import Counter, OrderedDict
 from datetime import datetime, timezone
 import json
@@ -13,6 +17,7 @@ from PIL import Image as PILImage
 
 import rclpy
 from rclpy.duration import Duration
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, qos_profile_sensor_data, QoSProfile
 from rclpy.time import Time
@@ -54,15 +59,17 @@ def image_array(msg):
 class CameraRecorder(Node):
     """Bounded capture queue with exact-time TF and reset segmentation."""
 
-    def __init__(self):
+    def __init__(self, camera_name=None, session_name=None):
         """Configure streams, capture storage, and bounded caches."""
-        super().__init__('camera_recorder')
+        super().__init__('camera_recorder' if camera_name is None else
+                         f'{camera_name}_recorder')
+        camera = camera_name or 'd455'
         defaults = {
             'output_dir': str(Path.home() / 'room_captures'),
-            'rgb_topic': '/d455/rgb/image_raw',
-            'depth_topic': '/d455/depth/imageraw',
-            'info_topic': '/d455/camera_info', 'world_frame': 'world',
-            'camera_frame': 'd455_color_optical_frame', 'save_depth': False,
+            'rgb_topic': f'/{camera}/rgb/image_raw',
+            'depth_topic': f'/{camera}/depth/image_raw',
+            'info_topic': f'/{camera}/camera_info', 'world_frame': 'world',
+            'camera_frame': f'{camera}_color_optical_frame', 'save_depth': True,
             'max_fps': 2.0, 'min_translation': 0.05, 'min_rotation_deg': 5.0,
             'wait_seconds': 2.0,
         }
@@ -75,7 +82,9 @@ class CameraRecorder(Node):
             if not math.isfinite(self.cfg[key]) or self.cfg[key] < 0:
                 raise ValueError(f'{key} must be finite and nonnegative')
         name = datetime.now(timezone.utc).strftime('capture_%Y%m%dT%H%M%S_%fZ')
-        self.root = Path(self.cfg['output_dir']).expanduser() / name
+        self.root = Path(self.cfg['output_dir']).expanduser() / (session_name or name)
+        if camera_name is not None:
+            self.root /= camera_name
         self.root.mkdir(parents=True, exist_ok=False)
         self.buffer = Buffer(cache_time=Duration(seconds=30))
         self.statics = {}
@@ -293,17 +302,35 @@ class CameraRecorder(Node):
         self.manifest.close()
 
 
+DEFAULT_CAMERAS = ('d455', 'd455_01', 'd455_02', 'd455_03', 'd455_04', 'd455_05')
+
+
 def main(args=None):
-    """Run until Ctrl+C, leaving each saved frame immediately readable."""
-    rclpy.init(args=args)
-    node = None
+    """Record all six cameras independently in one session until Ctrl+C."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cameras', default=','.join(DEFAULT_CAMERAS),
+                        help='Comma-separated camera namespaces (default: all six)')
+    options, ros_args = parser.parse_known_args(args)
+    cameras = options.cameras.split(',')
+    if (len(set(cameras)) != len(cameras) or
+            any(not name or not name.replace('_', '').isalnum() or
+                not name[0].isalpha() for name in cameras)):
+        parser.error('Camera names must be unique simple ROS namespace names')
+    rclpy.init(args=ros_args)
+    nodes = []
+    executor = SingleThreadedExecutor()
+    session = datetime.now(timezone.utc).strftime('capture_%Y%m%dT%H%M%S_%fZ')
     try:
-        node = CameraRecorder()
-        rclpy.spin(node)
+        for camera in cameras:
+            node = CameraRecorder(camera_name=camera, session_name=session)
+            nodes.append(node)
+            executor.add_node(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        if node is not None:
+        executor.shutdown()
+        for node in nodes:
             node.close()
             node.destroy_node()
         if rclpy.ok():

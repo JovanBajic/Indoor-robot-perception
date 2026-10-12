@@ -1,3 +1,8 @@
+"""Define Python packaging, ROS resource installation and command entry points for
+
+lidar_outline.
+"""
+
 from glob import glob
 
 from setuptools import find_packages, setup
@@ -13,6 +18,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
+        ('share/' + package_name + '/config', glob('config/*.rviz') + glob('config/*.yaml')),
     ],
     install_requires=['setuptools', 'numpy'],
     zip_safe=True,
@@ -30,6 +36,11 @@ setup(
             'lidar_outline = lidar_outline.lidar_outline_node:main',
             'wasd_teleop = lidar_outline.wasd_teleop:main',
             'capture_camera = lidar_outline.capture_camera:main',
+            'find_object = lidar_outline.find_object_node:main',
+            'isaac_localization = lidar_outline.isaac_localization:main',
+            'world_map = lidar_outline.world_map:main',
+            'semantic_navigation = lidar_outline.semantic_navigation:main',
+            'navigation_scans = lidar_outline.navigation_scans:main',
         ],
     },
 )

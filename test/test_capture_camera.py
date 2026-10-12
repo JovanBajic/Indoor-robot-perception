@@ -1,4 +1,7 @@
-"""Exercise capture timing, serialization, and simulation reset behavior."""
+"""Test camera recording, image serialization, timestamp pairing and simulation-reset
+
+handling using synthetic inputs.
+"""
 
 import json
 
@@ -85,4 +88,61 @@ def test_capture_and_reset(tmp_path):
     finally:
         node.close()
         node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_six_camera_isolation(tmp_path):
+    """Identical timestamps must preserve each camera's image and pose."""
+    from lidar_outline.capture_camera import DEFAULT_CAMERAS
+
+    rclpy.init(args=['--ros-args', '-p', f'output_dir:={tmp_path}',
+                     '-p', 'save_depth:=true'])
+    nodes = []
+    try:
+        for index, camera in enumerate(DEFAULT_CAMERAS):
+            node = CameraRecorder(camera_name=camera, session_name='six_camera_test')
+            nodes.append(node)
+            frame = f'{camera}_color_optical_frame'
+            info = CameraInfo(width=1, height=1)
+            info.header.frame_id = frame
+            info.k = [1., 0., 0., 0., 1., 0., 0., 0., 1.]
+            node.on_info(info)
+            rgb = Image(height=1, width=1, encoding='rgb8', step=3)
+            rgb.header.frame_id = frame
+            rgb.header.stamp.sec = 1
+            rgb.data = [index, 0, 0]
+            node.on_rgb(rgb)
+            depth = Image(height=1, width=1, encoding='32FC1', step=4)
+            depth.header = rgb.header
+            depth.data = list(np.array([index + 1.], dtype='<f4').tobytes())
+            node.on_depth(depth)
+            tf = TransformStamped()
+            tf.header.frame_id = 'world'
+            tf.header.stamp.sec = 1
+            tf.child_frame_id = frame
+            tf.transform.rotation.w = 1.
+            tf.transform.translation.x = float(index)
+            node.on_tf(TFMessage(transforms=[tf]))
+            node.process()
+        for index, node in enumerate(nodes):
+            assert node.index == 1
+            record = json.loads((node.folder / 'frames.jsonl').read_text())
+            assert record['frame_id'] == f'{DEFAULT_CAMERAS[index]}_color_optical_frame'
+            assert record['position_m'] == [float(index), 0., 0.]
+            np.testing.assert_array_equal(
+                np.load(node.folder / record['depth']), [[index + 1.]])
+            from PIL import Image as PILImage
+            with PILImage.open(node.folder / record['rgb']) as image:
+                assert image.getpixel((0, 0)) == (index, 0, 0)
+            clock = Clock()
+            clock.clock.sec = 2
+            node.on_clock(clock)
+            clock.clock.sec = 0
+            node.on_clock(clock)
+            assert node.segment == 1 and node.index == 0
+            assert not node.pending and not node.depths and not node.infos
+    finally:
+        for node in nodes:
+            node.close()
+            node.destroy_node()
         rclpy.shutdown()

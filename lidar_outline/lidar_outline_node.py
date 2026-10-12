@@ -1,3 +1,8 @@
+"""Extract line segments from LiDAR scans and publish RViz outline markers. Support
+
+separate sensor outlines and retained marker history.
+"""
+
 import math
 
 from geometry_msgs.msg import Point

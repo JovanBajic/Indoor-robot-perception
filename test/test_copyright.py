@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Check source copyright and license headers with the ROS ament copyright checker."""
+
 from ament_copyright.main import main
 import pytest
 
