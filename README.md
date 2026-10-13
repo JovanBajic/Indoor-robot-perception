@@ -59,6 +59,39 @@ Corrected LiDAR scans + saved world map -> Nav2 planner/controller
 Live goal completion and final heading response remain to be verified.
 ```
 
+## Mapping, localization, navigation and object prompts
+
+The commands below belong to separate stages. Open the verified Isaac scene and
+press **Play** before using live ROS nodes. Run each long-running process in its
+own terminal, and check for an existing instance before starting another.
+
+1. **Create a map:** run the corrected scan adapter and `world_map`, drive the
+   room manually, then save `/nav/map` as a new map file. See
+   [mapping and map saving](WORKFLOW.md#8-localization-and-nav2-setup-in-progress).
+   The current changed-room saved map is
+   `maps/room_redo_20261012T141102.yaml`; mapping again is optional when using
+   that map.
+2. **Localize the robot:** start `isaac_localization` to publish `/nav/odom`
+   and navigation TF from Isaac's measured base pose. This is simulator pose,
+   not AMCL. See the [restart checklist](WORKFLOW.md#restart-checklist--saved-map-and-scenesplat-navigation).
+3. **Start Nav2:** use the saved map and measured footprint with
+   `navigation.launch.py`. Its launch includes a map server, so use only one
+   map server. Keep keyboard teleop stopped when Nav2 drives. The exact
+   changed-room launch and RViz setup are in the [restart checklist](WORKFLOW.md#restart-checklist--saved-map-and-scenesplat-navigation).
+4. **Prompt for an object:** start `/find_object` with the matching completed
+   SceneSplat run, then call the service with a text query such as
+   `ros2 service call /find_object lidar_outline_interfaces/srv/FindObject
+   "{query: 'plant'}"`. Candidate boxes appear in RViz. See
+   [object-query setup](WORKFLOW.md#5-external-object-queries).
+5. **Preview an approach:** start `semantic_navigation`, select a numbered box
+   with RViz's **Interact** tool, and inspect the route. Selection does not
+   move the robot. Right-click the same box and explicitly approve only when
+   ready to navigate. See [clickable semantic navigation](WORKFLOW.md#10-click-scenesplat-candidates-in-rviz-and-preview-navigation).
+
+The saved map and SceneSplat run must describe the same room in matching world
+coordinates. Object boxes are candidates, and a completed Nav2 or semantic goal
+in the changed room has not yet been verified.
+
 [The extraction node](lidar_outline/lidar_outline_node.py) converts finite in-range polar samples to XY, groups consecutive points by distance, recursively splits at excessive perpendicular error, fits lines with PCA/SVD and merges neighboring near-collinear segments. Defaults: 0.20 m cluster gap, 0.06 m split/merge-offset thresholds, four samples, 0.15 m minimum displayed length, eight degrees merge angle and five historical outlines per sensor. Parameters are read and validated at startup. Front lines are green, rear lines blue; range boundaries are red/orange.
 
 Markers retain the scan frame and timestamp. The package does not transform scans into a global map; RViz uses external TF. Marker QoS is reliable/transient-local, depth 20; scan subscriptions use sensor-data QoS.
