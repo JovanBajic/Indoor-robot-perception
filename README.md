@@ -6,15 +6,15 @@ connects the simulated LiDAR, six RealSense D455 cameras, RViz, and Nav2.
 
 ## Demo
 
-<video src="demo/video.mp4" controls width="800"></video>
-
-[Open or download the demo video](demo/video.mp4)
+[Watch or download the full demo video](demo/video.mp4)
 
 ### 1. Map and record the room
 
 The robot is driven through the room while its front and rear LiDAR scans build
 an occupancy map. At the same time, six D455 cameras record paired RGB and
 depth images with their measured poses for 3D reconstruction.
+
+![Isaac Sim room and LiDAR occupancy map in RViz](demo/images/mapping.png)
 
 ### 2. Reconstruct and understand the room
 
@@ -24,12 +24,16 @@ recorded images and camera poses. The separate, upstream
 semantic features from the reconstruction so objects can be found with text
 queries.
 
+![SceneSplat feature view of the reconstructed room](demo/images/scenesplat.png)
+
 ### 3. Prompt and navigate
 
 A prompt such as `plant` finds candidate object locations in the reconstructed
 room and shows them in RViz. The navigation bridge checks a reachable approach
 against the saved map and robot footprint, previews the route, and sends a Nav2
 goal to drive the robot toward the selected candidate.
+
+![Text query result and navigation map in RViz](demo/images/query-navigation.png)
 
 ## How to run the demo
 
