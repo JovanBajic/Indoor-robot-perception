@@ -1,7 +1,7 @@
-"""Select semantic candidates in RViz, preview reachable approaches, then approve Nav2.
+"""Select semantic candidates in RViz and navigate after a short choice window.
 
 Uses external query artifacts and the live Nav2 costmap/padded footprint. Publishes
-no velocity. Candidate selection never sends NavigateToPose without approval.
+no velocity. Automatic goals use the same fresh route recheck as manual approval.
 """
 
 from collections import deque
@@ -40,16 +40,22 @@ class SemanticNavigation(Node):
         self.max_clearance = float(self.declare_parameter('max_clearance', 1.2).value)
         self.samples = int(self.declare_parameter('approach_samples', 16).value)
         self.max_candidates = int(self.declare_parameter('max_candidates', 20).value)
+        self.automatic_navigation = bool(self.declare_parameter('automatic_navigation', True).value)
+        self.selection_seconds = float(self.declare_parameter('selection_seconds', 5.).value)
         if (not math.isfinite(self.clearance) or self.clearance <= 0
                 or not math.isfinite(self.max_clearance)
                 or self.max_clearance < self.clearance
-                or not 4 <= self.samples <= 64 or not 1 <= self.max_candidates <= 100):
+                or not 4 <= self.samples <= 64 or not 1 <= self.max_candidates <= 100
+                or not math.isfinite(self.selection_seconds) or self.selection_seconds < 0):
             raise ValueError('Invalid clearance/sample/candidate limits')
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.status_pub = self.create_publisher(String, '/semantic_navigation/status', qos)
         self.path_pub = self.create_publisher(Path, '/semantic_navigation/preview_path', qos)
         self.goal_pub = self.create_publisher(PoseStamped, '/semantic_navigation/approach_goal', qos)
-        self.create_subscription(ObjectCandidates, '/object_query/candidates', self.on_candidates, qos)
+        # Receive only new queries. A latched candidate from before a bridge
+        # restart must never trigger an automatic navigation goal.
+        self.create_subscription(ObjectCandidates, '/object_query/candidates',
+                                 self.on_candidates, QoSProfile(depth=1))
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.on_map, qos)
         self.create_subscription(PolygonStamped, '/local_costmap/published_footprint',
                                  self.on_footprint, 10)
@@ -82,8 +88,12 @@ class SemanticNavigation(Node):
         self.plan_handle = None
         self.cancel_pending_navigation = False
         self.previous_clock = None
+        self.choice_deadline = None
+        self.choice_name = None
+        self.auto_target = None
+        self.create_timer(.1, self.finish_choice, clock=rclpy.clock.Clock())
         self.create_timer(.5, self.watchdog, clock=rclpy.clock.Clock())
-        self.status('Ready: query /find_object, then click a candidate box in RViz Interact mode.')
+        self.status('Ready: query /find_object; choose another box within five seconds if desired.')
 
     def status(self, text):
         self.status_pub.publish(String(data=text))
@@ -251,6 +261,8 @@ class SemanticNavigation(Node):
             self.status('New query ignored during navigation; cancel first, then query again.')
             return
         self.invalidate()
+        self.choice_deadline = None
+        self.choice_name = None
         self.server.clear()
         self.candidates = {}
         self.batch = msg
@@ -280,7 +292,10 @@ class SemanticNavigation(Node):
                 setattr(marker.pose.position, axis, (lo+hi)/2)
                 setattr(box.scale, axis, max(hi-lo, .05))
             marker.scale = max(box.scale.x, box.scale.y, box.scale.z, .2)
-            box.color.r, box.color.g, box.color.b, box.color.a = .95, .55, .1, .45
+            if candidate.id == 1:
+                box.color.r, box.color.g, box.color.b, box.color.a = .1, .85, .25, .65
+            else:
+                box.color.r, box.color.g, box.color.b, box.color.a = .95, .55, .1, .45
             control = InteractiveMarkerControl(name='select', always_visible=True,
                                                interaction_mode=InteractiveMarkerControl.BUTTON)
             control.markers.append(box)
@@ -288,14 +303,40 @@ class SemanticNavigation(Node):
             self.server.insert(marker, feedback_callback=self.feedback)
             self.menu.apply(self.server, name)
         self.server.applyChanges()
-        self.status(f'{len(self.candidates)} candidates shown (up to {self.max_candidates}); '
-                    'click a box to preview. Scores are similarity, not confidence.')
+        count = len(self.candidates)
+        if count == 0:
+            self.status('No valid candidate boxes; no navigation goal sent.')
+        elif not self.automatic_navigation:
+            self.status(f'{count} candidates shown; click a box to preview, then approve.')
+        elif count == 1:
+            self.status('One candidate found; checking its approach for automatic navigation.')
+            self.select_name(next(iter(self.candidates)), auto=True)
+        else:
+            self.choice_name = ('candidate_1' if 'candidate_1' in self.candidates
+                                else next(iter(self.candidates)))
+            self.choice_deadline = time.monotonic() + self.selection_seconds
+            self.status(f'{count} candidates: click another box within '
+                        f'{self.selection_seconds:g} seconds, or '
+                        f'#{self.candidates[self.choice_name].id} will be selected. '
+                        'Scores are similarity, not confidence.')
+
+    def finish_choice(self):
+        if self.choice_deadline is None or time.monotonic() < self.choice_deadline:
+            return
+        name = self.choice_name
+        self.choice_deadline = None
+        self.choice_name = None
+        if name in self.candidates and not self.navigating:
+            self.status(f'Selection closed: candidate #{self.candidates[name].id}. '
+                        'Checking a route before navigation.')
+            self.select_name(name, auto=True)
 
     def feedback(self, msg):
         if msg.event_type == InteractiveMarkerFeedback.BUTTON_CLICK:
             self.select(msg)
 
     def invalidate(self):
+        self.auto_target = None
         self.selected_bounds = None
         self.epoch += 1
         self.pending = None
@@ -305,18 +346,28 @@ class SemanticNavigation(Node):
         self.clear_preview()
 
     def select(self, feedback):
+        self.select_name(feedback.marker_name)
+
+    def select_name(self, name, auto=False):
         if self.navigating:
             self.status('Cancel current navigation before selecting another candidate.')
             return
-        candidate = self.candidates.get(feedback.marker_name)
+        candidate = self.candidates.get(name)
         if candidate is None:
             return
+        if self.choice_deadline is not None and not auto:
+            self.choice_name = name
+            remaining = max(0, self.choice_deadline-time.monotonic())
+            self.status(f'Candidate #{candidate.id} selected; {remaining:.1f}s until route check.')
+            return
         self.invalidate()
+        if auto:
+            self.auto_target = name
         epoch = self.epoch
         self.status(f'Loading current costmap for candidate #{candidate.id}...')
-        self.refresh_costmap(lambda: self.start_selection(feedback, candidate, epoch))
+        self.refresh_costmap(lambda: self.start_selection(name, candidate, epoch))
 
-    def start_selection(self, feedback, candidate, epoch):
+    def start_selection(self, name, candidate, epoch):
         if epoch != self.epoch or self.navigating:
             return
         try:
@@ -329,7 +380,7 @@ class SemanticNavigation(Node):
                 clearances.append(round(clearances[-1] + .2, 4))
             if clearances[-1] < self.max_clearance - 1e-6:
                 clearances.append(self.max_clearance)
-            self.pending = {'epoch': self.epoch, 'name': feedback.marker_name,
+            self.pending = {'epoch': self.epoch, 'name': name,
                             'bounds': (lo, hi), 'rings': deque(clearances),
                             'poses': [], 'best': None, 'approve': False,
                             'started': time.monotonic()}
@@ -381,8 +432,12 @@ class SemanticNavigation(Node):
                 self.show_goal(best)
                 self.status(f"Candidate #{self.candidates[best['name']].id}: "
                             f"{best['length']:.2f}m route, {best['clearance']:.2f}m "
-                            'clearance preview. Right-click that box → '
-                            'Approve selected approach and navigate. No movement sent.')
+                            'clearance preview.')
+                if self.auto_target == best['name'] and best['epoch'] == self.epoch:
+                    self.auto_target = None
+                    self.approve(automatic=True)
+                else:
+                    self.status('Right-click that box → Approve selected approach and navigate.')
             return
         pose = job['poses'].pop(0)
         try:
@@ -464,7 +519,7 @@ class SemanticNavigation(Node):
         response.success, response.message = self.approve()
         return response
 
-    def approve(self):
+    def approve(self, automatic=False):
         if self.preview is None or self.pending is not None or self.navigating:
             return False, 'No completed preview available for approval'
         try:
@@ -475,7 +530,8 @@ class SemanticNavigation(Node):
             if not self.is_free(best['pose']):
                 self.invalidate()
                 raise ValueError('Selected approach is now obstructed; select again')
-            self.status('Approval received: loading current costmap before rechecking route.')
+            self.status(('Automatic selection' if automatic else 'Approval received')
+                        + ': loading current costmap before rechecking route.')
             accepted = self.refresh_costmap(lambda: self.start_approval(best))
             return accepted, ('Approval received; rechecking route' if accepted
                               else 'Current costmap unavailable')
@@ -503,7 +559,7 @@ class SemanticNavigation(Node):
     def send_navigation(self, best):
         self.navigating = True
         self.cancel_pending_navigation = False
-        self.status('Sending approved approach to Nav2. Keep teleop stopped; Pause Isaac to stop.')
+        self.status('Sending checked approach to Nav2. Keep teleop stopped; Pause Isaac to stop.')
         future = self.navigator.send_goal_async(NavigateToPose.Goal(pose=self.make_pose(best['pose'])))
         future.add_done_callback(self.navigation_accepted)
 
@@ -543,6 +599,8 @@ class SemanticNavigation(Node):
         return response
 
     def cancel(self):
+        self.choice_deadline = None
+        self.choice_name = None
         self.cancel_pending_navigation = True
         if self.navigation is not None:
             self.navigation.cancel_goal_async()

@@ -18,4 +18,5 @@ exec python -u "$script_dir/train_capture_mcmc.py" "$capture" "$output" \
   --steps "${MCMC_STEPS:-30000}" --downscale "${MCMC_DOWNSCALE:-2}" \
   --init-points "${MCMC_INIT_POINTS:-100000}" --cap-max "${MCMC_CAP_MAX:-1000000}" \
   --initialization "${MCMC_INITIALIZATION:-depth}" \
+  --seed "${MCMC_SEED:-42}" \
   --depth-near "${MCMC_DEPTH_NEAR:-0.1}" --depth-far "${MCMC_DEPTH_FAR:-10.0}"

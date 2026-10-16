@@ -4,7 +4,130 @@ All commands run in a terminal unless stated otherwise. Copy only commands
 inside the code blocks, without the triple backticks. Replace the capture/run
 path when using another recording; the examples below use verified existing data.
 
-## Current status — 2026-10-12
+## Fast demo commands — generated names
+
+Open the matching six-camera Isaac scene and press **Play**. With no old mapping
+or Nav2 stack running, start the combined recorder, corrected scans, map collector
+and RViz:
+
+```bash
+bash ~/ros2_ws/src/lidar_outline/scripts/demo.sh record
+```
+
+Drive manually. Press **Ctrl-C in this terminal while Isaac is still playing**:
+the script stops the recorder, saves `/nav/map`, and remembers the generated
+capture and map filenames. Wait for `Saved demo capture and map` before stopping
+Isaac. Close Isaac and the viewer for GPU memory, then run:
+
+```bash
+bash ~/ros2_ws/src/lidar_outline/scripts/demo.sh pipeline
+```
+
+This creates or reuses the matching MCMC run, extracts SceneSplat features and
+opens its viewer. Close the viewer, reopen the same Isaac room and press **Play**.
+Then run:
+
+```bash
+bash ~/ros2_ws/src/lidar_outline/scripts/demo.sh navigate
+```
+
+When it says **Ready**, query in another terminal:
+
+```bash
+bash ~/ros2_ws/src/lidar_outline/scripts/demo.sh query plant
+```
+
+The demo wrapper stores the exact generated capture, map and run paths in
+`~/room_captures/.lidar_outline_demo/current`; it does not pick the newest file
+from unrelated recordings. `navigate` explicitly connects Nav2 to `/cmd_vel`.
+After a query, one candidate starts route checks immediately and navigates if
+reachable. With several candidates, click another numbered RViz box within five
+seconds; otherwise #1 is used. The selected route is previewed and checked
+against a fresh costmap and robot footprint before a Nav2 goal is sent. Cancel
+through `/semantic_navigation/cancel` if needed; pause Isaac for an immediate stop.
+The original commands below remain available for individual stages.
+
+## Current status — 2026-10-13
+
+**Drive handoff:** Open `/home/jovan/Desktop/rbkairos_franka_project/trial.usd`
+for any further drive work. Its Differential Controller `wheelDistance` was set
+to 1.0 in the open Isaac scene but was **not saved**; verify the value after
+reopening. The original `6_cameras_rb_kairos_new.usd` was not changed for this
+calibration. The temporary Nav2 stack, scan adapter, localization bridge, and
+command relay were stopped; `/cmd_vel` had zero ROS publishers at the final
+check. The next test needs a footprint-clear goal. The apparent heading
+overshoot in the latest trial was Nav2's collision-recovery Spin, not proof of
+drive overshoot. Do not reuse the tested goal (-1.17, 0.32).
+
+### Drive response check — 2026-10-13
+
+- Bounded direct `/cmd_vel` turn tests used Isaac measured `/nav/odom` and
+  `/joint_states`, then published zero velocity. The 0.8 rad/s command produced
+  about 0.266 rad/s measured body yaw and about 1.5 rad/s opposite-side wheel
+  speeds. A 0.4 rad/s repeat produced about 0.093 rad/s yaw. The first 0.4
+  attempt nearly stalled. These rates use simulation time; playback itself ran
+  at about 0.34 real-time factor.
+- Connecting Playback Tick Delta Seconds to Differential Controller `dt` did
+  not materially change the measured turn response. Controller wheel radius
+  0.11 m and wheel distance 0.409 m match four 0.11 m cylinder colliders and
+  their 0.409 m lateral spacing. All four wheel joints reached commanded
+  speeds, so the remaining yaw loss is between wheel motion and base motion.
+- A read-only Isaac inspection script, `scripts/inspect_drive_physics.py`,
+  writes `/tmp/isaac-drive-physics.json`. It found two enabled ground collision
+  planes and no resolved wheel/ground physics material. Temporarily disabling
+  one ground plane worsened the 0.4 rad/s turn and caused roughly 0.069 m base
+  drift. The user restored its collision setting; do not treat duplicate
+  planes as a confirmed cause. Plane orientations were not audited.
+- With all D455 RGB/depth render products disabled, measured camera messages
+  stopped, but the real-time factor stayed about 0.34 and the 0.8 rad/s turn
+  stayed at about 0.266 rad/s. Camera publishing load did not explain the
+  drive mismatch. Re-enable camera render products before recording/query work.
+- A subsequent bounded straight test in mapped free space commanded 0.1 m/s:
+  all four wheels reached about 0.907 rad/s, matching a 0.11 m radius, and
+  measured body forward speed reached 0.1003 m/s with negligible yaw. The
+  0.224 m translation over the command interval confirms straight drive
+  tracks; the large response error is specific to turning, consistent with
+  four-wheel skid-steer scrub/contact rather than a generic `/cmd_vel` cap.
+- Extended read-only audit measured both ground plane normals upward at z=0.
+  Wheel cylinder lower bounds were roughly 0.0005–0.0018 m above the plane
+  at rest; non-wheel collision boxes were higher. This found no chassis-floor
+  scrape. The normal for one plane is scaled by its transform; the planes were
+  not proven to be the cause, and disabling one worsened motion.
+- Trial copy `/home/jovan/Desktop/rbkairos_franka_project/trial.usd` was made
+  for drive changes. Temporary friction tests at 0.2 static/dynamic on wheels
+  and then both ground planes raised peak yaw at a 0.8 rad/s command from
+  0.266 to 0.286 and 0.307 rad/s respectively, while 0.1 m/s straight motion
+  remained accurate. These edits were not saved to the original scene.
+- After reopening the trial from disk to discard friction changes, its
+  Differential Controller `wheelDistance` was changed from 0.409 to 0.8 for
+  an effective skid-steer calibration. Bounded direct commands yielded
+  0.256 rad/s measured yaw at 0.4 commanded and about 0.60 rad/s at 0.8
+  commanded; 0.1 m/s straight still measured 0.1003 m/s with negligible yaw.
+  Trial value is not the physical wheel spacing and is not yet validated on a
+  Nav2 route or endpoint. Do not silently copy it to the original scene.
+- Increasing the trial-only effective `wheelDistance` to 1.0 gave peak measured
+  yaw about +0.340 rad/s for +0.4 commanded, +0.755 for +0.8, and -0.326 for
+  -0.4. The +0.8 turn shifted the base about 0.047 m during the short test;
+  the -0.4 turn shifted it about 0.044 m. This is closer to the requested
+  turn rate but shows direction/speed dependence and positional drift. Keep
+  1.0 as an unsaved trial until a short route and endpoint are checked.
+- At `wheelDistance` 1.0, a repeated bounded 0.1 m/s straight command measured
+  0.1003 m/s with negligible yaw. Nav2 was started with output disconnected and
+  planned a short route to (-1.17, 0.32), but its planner accepted a goal whose
+  full robot footprint intersects the inflated static map (16 sampled edge
+  points at cost 253 in the local costmap; the live obstacle layer was clear).
+  A bounded relay test advanced from y=-0.17 to about y=0.10, then Regulated
+  Pure Pursuit repeatedly reported `detected collision ahead`. Nav2 invoked its
+  1.57 rad recovery Spin, which carried the robot past the requested heading;
+  the robot then turned back. The goal was canceled at the 50 s wall-time limit
+  with final pose about (-1.247, 0.142, 2.008 rad), still 0.194 m from the
+  requested position. This does not validate endpoint convergence. Select a
+  footprint-clear goal and inspect static-map alignment/clearance before the
+  next route test; do not attribute this overshoot to wheelDistance alone.
+- The test command publisher, temporary localization bridge, scan adapter,
+  and Nav2 stack were stopped. No Nav2 goal reached success. Next check map
+  alignment and the full footprint at a clear goal, then retest endpoint
+  convergence before changing Nav2 goal tuning or the wheel configuration.
 
 - Changed-room SceneSplat query run is
   `~/mcmc_runs/capture_20261012T114946_176800Z_depth_20261012T141242_524363`;
@@ -22,6 +145,41 @@ path when using another recording; the examples below use verified existing data
 - Recording is separate from the pipeline. Do not start training just to view maps.
 
 ## Restart checklist — saved map and SceneSplat navigation
+
+### Short path after SceneSplat finishes
+
+Use the **exact completed MCMC run** whose SceneSplat features match the saved
+map. Open the matching Isaac scene and press **Play** first. Stop any old Nav2,
+scan, localization, query, or semantic bridge processes. Then run one command:
+
+```bash
+bash ~/ros2_ws/src/lidar_outline/scripts/start_semantic_navigation.sh \
+  /absolute/path/to/COMPLETED_MCMC_RUN \
+  /absolute/path/to/MATCHING_MAP.yaml --drive
+```
+
+`--drive` explicitly connects Nav2 to `/cmd_vel`. Omit it to preview with
+disconnected output. The launcher checks the run artifacts, map, Isaac clock and
+duplicate nodes; starts scans, localization, Nav2, query service, bridge and
+RViz; and sets requested Nav2 speeds to 1.5 m/s forward and 2.0 rad/s heading.
+It does not issue an object
+query or a navigation goal. It prints log paths. Keep this terminal open; press
+**Ctrl-C** to stop the processes it started.
+
+When it says **Ready**, query in another terminal:
+
+```bash
+bash ~/ros2_ws/src/lidar_outline/scripts/query_semantic_object.sh 'plant'
+```
+
+In RViz set Fixed Frame `world`, add the InteractiveMarkers topic
+`/semantic_navigation/candidates/update` and Path topic
+`/semantic_navigation/preview_path` if they are not already displayed. Choose
+**Interact**. With multiple boxes, click a different candidate within five
+seconds; otherwise green #1 is selected. With one box, route checking begins
+immediately. A fresh route/footprint check precedes the Nav2 goal. Wheel slip
+and final heading remain unverified; watch the robot during motion. The detailed
+manual commands below remain available for diagnosis.
 
 The ROS packages were rebuilt after the semantic route-check fix; **no rebuild is
 needed just to restart**. Open
@@ -60,9 +218,9 @@ the base. Run each long-running command below in its own terminal, in order.
 
    This launch starts its own map server. Wait for the lifecycle manager to
    activate Nav2. In another sourced terminal, check `ros2 lifecycle get
-   /controller_server` returns `active [3]`. The current installed config asks
-   for `0.7` m/s forward and `0.8` rad/s heading rotation. For the slower
-   settings previously used during testing, apply these **before sending a goal**:
+   /controller_server` returns `active [3]`. The installed config now requests
+   `1.5` m/s forward and `2.0` rad/s heading rotation. To use the slower
+   settings from earlier testing, apply these **before sending a goal**:
 
    ```bash
    ros2 param set /controller_server FollowPath.desired_linear_vel 0.2

@@ -310,16 +310,19 @@ def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cameras', default=','.join(DEFAULT_CAMERAS),
                         help='Comma-separated camera namespaces (default: all six)')
+    parser.add_argument('--session-name', help='Name of the shared capture folder')
     options, ros_args = parser.parse_known_args(args)
     cameras = options.cameras.split(',')
     if (len(set(cameras)) != len(cameras) or
             any(not name or not name.replace('_', '').isalnum() or
                 not name[0].isalpha() for name in cameras)):
         parser.error('Camera names must be unique simple ROS namespace names')
+    session = options.session_name or datetime.now(timezone.utc).strftime('capture_%Y%m%dT%H%M%S_%fZ')
+    if not session.startswith('capture_') or not all(c.isalnum() or c == '_' for c in session):
+        parser.error('Session name must start with capture_ and contain only letters, numbers, and underscores')
     rclpy.init(args=ros_args)
     nodes = []
     executor = SingleThreadedExecutor()
-    session = datetime.now(timezone.utc).strftime('capture_%Y%m%dT%H%M%S_%fZ')
     try:
         for camera in cameras:
             node = CameraRecorder(camera_name=camera, session_name=session)

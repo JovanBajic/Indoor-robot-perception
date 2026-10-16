@@ -1,4 +1,4 @@
-"""Exercise RViz feedback, asynchronous planning, approval and query replacement in isolation.
+"""Exercise RViz feedback, timed choices, route checks and navigation in isolation.
 
 Run explicitly with ROS_DOMAIN_ID=88; never use the live simulation domain.
 """
@@ -27,14 +27,16 @@ from lidar_outline.semantic_navigation import SemanticNavigation
 
 @unittest.skipUnless(os.environ.get('ROS_DOMAIN_ID') == '88', 'Requires isolated domain 88')
 class SemanticRosTest(unittest.TestCase):
-    def test_click_previews_then_explicit_approval_navigates(self):
+    def test_manual_and_timed_navigation(self):
         rclpy.init()
         fixture = Node('semantic_fixture')
         bridge = SemanticNavigation()
+        bridge.automatic_navigation = False
         executor = SingleThreadedExecutor()
         executor.add_node(fixture)
         executor.add_node(bridge)
         counts = {'plans': 0, 'navigation': 0}
+        goals = []
         def plan(handle):
             counts['plans'] += 1
             result = ComputePathToPose.Result()
@@ -53,6 +55,7 @@ class SemanticRosTest(unittest.TestCase):
             return result
         def navigate(handle):
             counts['navigation'] += 1
+            goals.append(handle.request.pose.pose.position.x)
             handle.succeed()
             return NavigateToPose.Result()
         def get_costmap(request, response):
@@ -149,6 +152,31 @@ class SemanticRosTest(unittest.TestCase):
             self.assertIsNone(bridge.preview)
             self.assertEqual(bridge.candidates, {})
             self.assertEqual(counts['navigation'], 1)
+            # A sole candidate navigates without waiting for the choice timer.
+            bridge.automatic_navigation = True
+            bridge.on_candidates(batch)
+            self.assertIsNone(bridge.choice_deadline)
+            spin_until(lambda: counts['navigation'] == 2 and not bridge.navigating, 25)
+            # With two candidates, a click on #2 changes the choice before timeout.
+            other = ObjectCandidate(id=2, mean_cosine=.1, point_count=80)
+            other.bbox_min.x, other.bbox_max.x = 2.8, 3.2
+            other.bbox_min.y, other.bbox_max.y = -.2, .2
+            other.bbox_max.z = 1.
+            batch.candidates = [candidate, other]
+            bridge.on_candidates(batch)
+            self.assertIsNotNone(bridge.choice_deadline)
+            self.assertEqual(counts['navigation'], 2)
+            bridge.feedback(InteractiveMarkerFeedback(
+                marker_name='candidate_2',
+                event_type=InteractiveMarkerFeedback.BUTTON_CLICK))
+            self.assertEqual(bridge.choice_name, 'candidate_2')
+            spin_until(lambda: counts['navigation'] == 3 and not bridge.navigating, 25)
+            self.assertGreater(goals[-1], goals[-2])
+            # Without a click, the five-second window defaults to #1.
+            bridge.on_candidates(batch)
+            self.assertEqual(bridge.choice_name, 'candidate_1')
+            spin_until(lambda: counts['navigation'] == 4 and not bridge.navigating, 25)
+            self.assertLess(goals[-1], goals[-2])
         finally:
             fixture.destroy_timer(timer)
             fixture.destroy_service(map_service)

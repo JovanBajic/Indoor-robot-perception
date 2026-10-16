@@ -86,6 +86,7 @@ def main():
     parser.add_argument('--initialization', choices=('depth', 'random'), default='depth')
     parser.add_argument('--depth-near', type=float, default=0.1)
     parser.add_argument('--depth-far', type=float, default=10.0)
+    parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
     if args.steps < 1 or args.downscale < 1 or args.init_points < 4 or args.cap_max < args.init_points:
         parser.error('Invalid steps, downscale, or Gaussian limits')
@@ -95,8 +96,8 @@ def main():
         parser.error('Require 0 < depth-near < depth-far')
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA GPU is required')
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     print(f'Loading captured views from {args.capture}', flush=True)
     views = load_views(args.capture, args.downscale)
     val_ids = set(range(0, len(views), 8))
@@ -131,7 +132,7 @@ def main():
     strategy.check_sanity(params, optimizers)
     state = strategy.initialize_state()
     args.output.mkdir(parents=True)
-    config = {**vars(args), 'strategy': 'gsplat.MCMCStrategy', 'seed': 42,
+    config = {**vars(args), 'strategy': 'gsplat.MCMCStrategy',
               'views': len(views), 'train_views': len(train_ids), 'validation_views': len(val_ids),
               'initialization': args.initialization,
               'scene_scale': scene_scale, 'depth_used': args.initialization == 'depth',
@@ -153,6 +154,8 @@ def main():
         return image, info
 
     print(f'MCMC: {len(train_ids)} training / {len(val_ids)} validation views; output {args.output}', flush=True)
+    best_score = float('-inf')
+    best_checkpoint = None
     try:
         for step in range(args.steps):
             view = views[train_ids[np.random.randint(len(train_ids))]]
@@ -187,8 +190,25 @@ def main():
                         if index == 0:
                             preview = np.concatenate([truth[0].cpu().numpy(), prediction[0].clamp(0, 1).cpu().numpy()], axis=1)
                             Image.fromarray((preview * 255).astype(np.uint8)).save(args.output / 'validation.png')
-                    print(f'Validation PSNR (up to 8 held-out views): {np.mean(scores):.2f} dB', flush=True)
+                    score = float(np.mean(scores))
+                    print(f'Validation PSNR (up to 8 held-out views): {score:.2f} dB', flush=True)
+                    if score > best_score:
+                        best_score = score
+                        best_checkpoint = args.output / f'checkpoint_{step + 1:06d}.pt'
+        if best_checkpoint != args.output / f'checkpoint_{args.steps:06d}.pt':
+            checkpoint = torch.load(best_checkpoint, map_location='cuda', weights_only=False)
+            params = torch.nn.ParameterDict({
+                key: torch.nn.Parameter(value) for key, value in checkpoint['splats'].items()})
+            with torch.no_grad():
+                prediction, _ = render(views[0], min(checkpoint['step'] // 1000, 3))
+                truth = views[0]['rgb'].cuda().float()[None] / 255
+                preview = np.concatenate([
+                    truth[0].cpu().numpy(), prediction[0].clamp(0, 1).cpu().numpy()], axis=1)
+                Image.fromarray((preview * 255).astype(np.uint8)).save(args.output / 'validation.png')
         export_ply(params, args.output / 'splat.ply')
+        (args.output / 'selected_checkpoint.json').write_text(json.dumps({
+            'checkpoint': best_checkpoint.name, 'validation_psnr_db': best_score}, indent=2))
+        print(f'Selected {best_checkpoint.name}: {best_score:.2f} dB', flush=True)
         print(f'Finished: {args.output / "splat.ply"}', flush=True)
     except KeyboardInterrupt:
         torch.save({'step': step, 'splats': params.state_dict(), 'config': config}, args.output / 'interrupted.pt')

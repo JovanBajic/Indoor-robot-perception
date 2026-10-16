@@ -11,6 +11,7 @@ import numpy as np
 import rclpy
 from nav_msgs.msg import OccupancyGrid
 from rclpy.duration import Duration
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
@@ -158,7 +159,7 @@ def main(args=None):
     node = WorldMap()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()

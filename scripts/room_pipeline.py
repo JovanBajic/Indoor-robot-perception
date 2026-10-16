@@ -19,13 +19,14 @@ SCRIPTS = Path(__file__).resolve().parent
 
 
 def validate_capture(capture):
-    """Fail before training if any input pair or pose is unusable."""
+    """Check input pairs and poses; report frames outside the seed depth range."""
     manifests = sorted(capture.glob('*/segment_000/frames.jsonl'))
     if not manifests:
         raise ValueError(f'No camera manifests found in {capture}')
     if any(m.parent.name != 'segment_000' for m in capture.glob('*/segment_*/frames.jsonl')):
         raise ValueError('Multiple capture segments found; select/merge segments explicitly first')
     total = 0
+    depth_views = 0
     for manifest in manifests:
         count = 0
         for line in manifest.read_text().splitlines():
@@ -38,8 +39,12 @@ def validate_capture(capture):
             expected = (r['height'], r['width'])
             if depth.dtype != np.float32 or depth.shape != expected:
                 raise ValueError(f'{manifest}: depth must be float32 with shape {expected}')
-            if not (np.isfinite(depth) & (depth >= .1) & (depth <= 10)).any():
-                raise ValueError(f'{manifest}: frame {r["stamp_ns"]} has no depth in 0.1–10m')
+            has_seed_depth = (np.isfinite(depth) & (depth >= .1) & (depth <= 10)).any()
+            if not has_seed_depth:
+                print(f'  Warning: {manifest}: frame {r["stamp_ns"]} has no depth '
+                      'in 0.1–10m; depth initialization will skip it', flush=True)
+            else:
+                depth_views += 1
             with Image.open(manifest.parent / r['rgb']) as rgb:
                 if rgb.size != expected[::-1]:
                     raise ValueError(f'{manifest}: RGB/depth dimensions differ')
@@ -56,6 +61,8 @@ def validate_capture(capture):
         total += count
     if total < 8:
         raise ValueError('Need at least eight recorded views')
+    if depth_views < 8:
+        raise ValueError('Need at least eight views with depth in 0.1–10m')
     return total
 
 

@@ -45,14 +45,14 @@ controller_server:
       stateful: true
     FollowPath:
       plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
-      desired_linear_vel: 0.7
+      desired_linear_vel: 1.5
       lookahead_dist: 0.5
       min_lookahead_dist: 0.3
       max_lookahead_dist: 0.8
       use_velocity_scaled_lookahead_dist: false
-      rotate_to_heading_angular_vel: 0.8
+      rotate_to_heading_angular_vel: 2.0
       # At 10Hz, 0.6 limited the initial command to 0.06rad/s and stalled live.
-      # 4.0 permits the existing 0.4rad/s heading speed cap immediately.
+      # 4.0 limits each initial 10Hz heading command step to about 0.4rad/s.
       max_angular_accel: 4.0
       transform_tolerance: 0.3
       use_rotate_to_heading: true
